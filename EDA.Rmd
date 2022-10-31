@@ -14,15 +14,295 @@ library(tidyverse)
 library(naniar)
 library(naniar)
 library(janitor)
+library(skimr)
+library(tidymodels)
+library(ranger)
+
 ```
 
+
+Can you predict which reviews come from people who have never owned the moped before?  
 
 # Data Cleaning
 
 
 ```{r}
 
-data <- read_csv("https://s3.amazonaws.com/talent-assets.datacamp.com/coffeeDSA.csv")
+data <- read_csv("https://www.datacamp-workspace.com/proxy/absolute/0543ad72-ea9f-4b10-95bf-098d54ec80d8/files/data/moped.csv")
 
 ```
+
+Cleaning the columns names
+
+```{r}
+
+data <- clean_names(data)
+
+```
+
+
+```{r}
+data %>% glimpse()
+```
+
+```{r}
+data %>% str()
+```
+
+
+Everything needs to be converted to factor. It looks like all numeric data are certain numbers between 1 to 5. It's 
+
+```{r}
+data <- data %>% 
+  mutate_if(is_character, factor) %>% 
+  mutate_if(is_numeric, factor) 
+  
+```
+
+```{r}
+data %>% glimpse()
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+
+data %>% 
+  gg_miss_var()
+
+
+```
+
+
+For missing values, we will do 3 recipe one with all KNN imputation, second one just for comfort and remove the rest, last one will be removing all data with NA values.
+
+```{r}
+data %>% 
+  miss_var_summary()
+
+```
+
+```{r}
+data %>% 
+  ggplot(aes(model_name, fill = owned_for )) + geom_bar(position = "dodge") + 
+  theme(axis.text.x = element_text(angle=90, hjust=1)) +
+  labs(x = "Models", y = NULL, fill = "Owned for", title = "Which model owned how long?")
+```
+
+```{r}
+
+data %>% 
+  ggplot(aes(used_it_for, fill = owned_for )) + geom_bar(position = "dodge") + 
+  theme(axis.text.x = element_text(angle=90, hjust=1)) +
+  labs(x = "Purpose", y = NULL, fill = "Owned for", title = "Which purpose owned how long?") 
+
+```
+
+```{r}
+
+data %>% 
+  ggplot(aes(visual_appeal, fill = owned_for )) + geom_bar(position = "dodge") + 
+  theme(axis.text.x = element_text(angle=90, hjust=1)) +
+  labs(x = "Visual Appeal", y = NULL, fill = "Owned for", title = "Visual Appeal") 
+
+```
+
+```{r}
+
+data %>% 
+  ggplot(aes(reliability, fill = owned_for )) + geom_bar(position = "dodge") + 
+  theme(axis.text.x = element_text(angle=90, hjust=1)) +
+  labs(x = "Reliability", y = NULL, fill = "Owned for", title = "Reliability") 
+
+```
+
+
+```{r}
+
+data %>% 
+  ggplot(aes(extra_features, fill = owned_for )) + geom_bar(position = "dodge") + 
+  theme(axis.text.x = element_text(angle=90, hjust=1)) +
+  labs(x = "Extra features", y = NULL, fill = "Owned for", title = "Extra features") 
+
+```
+
+
+```{r}
+
+data %>% 
+  ggplot(aes(comfort, fill = owned_for )) + geom_bar(position = "dodge") + 
+  theme(axis.text.x = element_text(angle=90, hjust=1)) +
+  labs(x = "Comfort", y = NULL, fill = "Owned for", title = "Comfort") 
+
+```
+
+```{r}
+
+data %>% 
+  ggplot(aes(maintenance_cost, fill = owned_for )) + geom_bar(position = "dodge") + 
+  theme(axis.text.x = element_text(angle=90, hjust=1)) +
+  labs(x = "Maintenance cost", y = NULL, fill = "Owned for", title = "Maintenance Cost") 
+
+```
+
+
+```{r}
+
+data %>% 
+  ggplot(aes(value_for_money, fill = owned_for )) + geom_bar(position = "dodge") + 
+  theme(axis.text.x = element_text(angle=90, hjust=1)) +
+  labs(x = "Value for money", y = NULL, fill = "Owned for", title = "Value For Money Cost") 
+
+```
+
+
+Can you predict which reviews come from people who have never owned the moped before? 
+Yes, I think we can predict.
+
+# Model
+
+We will use tidymodels framework and use random forest machine learning algorithm.
+
+
+Creating train and test datasets.
+
+```{r}
+
+set.seed(123)
+
+split <- initial_split(data)
+train <- training(split)
+test <- testing(split)
+
+kfolds <- vfold_cv(data = data,strata = owned_for)
+
+```
+
+
+
+
+First we create our recipes. We will create 3 of them, later we will check which one works best.
+```{r}
+# Impute all
+rec1 <- train %>% 
+  recipe(owned_for ~ .) %>% 
+  step_impute_knn(all_nominal_predictors())
+
+# Impute just comfort
+rec2 <- train %>% 
+  recipe(owned_for ~ .) %>% 
+  step_impute_knn(comfort) %>% 
+  step_rm(maintenance_cost,extra_features,value_for_money)
+
+# Impute nothing, remove all have NA values
+rec3 <- train %>% 
+  recipe(owned_for ~ .) %>% 
+  step_rm(comfort,maintenance_cost,extra_features,value_for_money)
+
+  
+```
+
+
+We will use Random Forest on Ranger engine
+
+```{r}
+
+rf <- rand_forest() %>% 
+  set_engine("ranger") %>% 
+  set_mode("classification")
+
+```
+
+
+Now we will create our workflows
+
+
+```{r}
+
+wf1 <- workflow() %>% 
+  add_recipe(rec1) %>% 
+  add_model(rf)
+
+wf2 <- workflow() %>% 
+  add_recipe(rec2) %>% 
+  add_model(rf)
+
+wf3 <- workflow() %>% 
+  add_recipe(rec3) %>% 
+  add_model(rf)
+
+```
+
+
+```{r}
+
+doParallel::registerDoParallel()
+
+wf_fit1 <- last_fit(wf1, split)
+wf_fit2 <- last_fit(wf2, split)
+wf_fit3 <- last_fit(wf3, split)
+```
+
+
+```{r}
+
+wf_fit1 %>% collect_metrics()
+wf_fit2 %>% collect_metrics()
+wf_fit3 %>% collect_metrics() # This looks like the best one
+
+```
+Let's do some tuning
+
+```{r}
+rf_tune <- rand_forest(mtry = tune(),trees = 1000,min_n = tune()) %>% 
+  set_engine("ranger") %>% 
+  set_mode("classification")
+
+```
+
+```{r}
+wf_tune <- workflow() %>% 
+  add_recipe(rec3) %>% 
+  add_model(rf_tune)
+```
+
+
+```{r}
+
+grid <- grid_random(finalize(mtry(),train),  min_n(), size = 20)
+```
+
+```{r}
+
+tune_rs <- tune_grid(wf_tune,resamples = kfolds,grid = grid)
+```
+
+```{r}
+autoplot(tune_rs)
+```
+
+```{r}
+
+final_Wf <- finalize_workflow(wf_tune, select_best(tune_rs, "accuracy"))
+```
+
+```{r}
+
+
+
+wf_final <- last_fit(final_Wf, split)
+```
+```{r}
+wf_final %>% collect_metrics()
+```
+
 
