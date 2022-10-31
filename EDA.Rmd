@@ -1,0 +1,28 @@
+---
+title: "EDA"
+author: "Serkan Oral"
+date: "2022-10-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+library(tidyverse)
+library(naniar)
+library(naniar)
+library(janitor)
+```
+
+
+# Data Cleaning
+
+
+```{r}
+
+data <- read_csv("https://s3.amazonaws.com/talent-assets.datacamp.com/coffeeDSA.csv")
+
+```
+
